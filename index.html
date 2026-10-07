@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Stock Bot — Live Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1a1d23; --muted: #6b7280;
+    --line: #e5e7eb; --blue: #2563eb; --green: #16a34a; --red: #dc2626;
+    --amber: #d97706; --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink);
+         font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  h1 { font-size: 22px; font-weight: 700; }
+  .asof { color: var(--muted); font-size: 13px; }
+  .live { margin-left: auto; font-size: 12px; color: var(--green); font-weight: 600; }
+  .live::before { content: "●"; margin-right: 5px; animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .hero { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 22px; margin-top: 14px; }
+  .value { font-size: 46px; font-weight: 750; letter-spacing: -1px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; }
+  .chip.up { background: #e8f7ee; color: var(--green); }
+  .chip.down { background: #fdecec; color: var(--red); }
+  .chip.flat { background: #eef2f7; color: var(--muted); }
+  .spyline { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 12px; margin-top: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 14px 16px; }
+  .card .k { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;
+             letter-spacing: .04em; }
+  .card .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .card .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+            padding: 18px; margin-top: 14px; }
+  h2 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  canvas { width: 100%; height: 260px; display: block; }
+  canvas.tall { height: 200px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  .pos { color: var(--green); font-weight: 600; }
+  .neg { color: var(--red); font-weight: 600; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+              margin-right: 5px; vertical-align: middle; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 18px; text-align: center; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI Stock Bot</h1>
+    <span class="asof" id="asof">loading…</span>
+    <span class="live">auto-refreshing</span>
+  </header>
+
+  <div class="hero">
+    <div class="value" id="pvalue">—</div>
+    <div class="chips" id="chips"></div>
+    <div class="spyline" id="spyline"></div>
+  </div>
+
+  <div class="grid" id="statcards"></div>
+
+  <section id="streaks-section" class="hidden">
+    <h2>Streaks &amp; risk</h2>
+    <div class="sub">From the daily equity curve and intraday trade journal</div>
+    <div class="grid" id="streakcards"></div>
+  </section>
+
+  <section>
+    <h2>Equity curve vs S&amp;P 500</h2>
+    <div class="sub">Both lines start at $100 · updated after each trading run</div>
+    <canvas id="equity"></canvas>
+    <div class="legend"><span><i style="background:var(--blue)"></i>Bot portfolio</span>
+      <span><i style="background:#9ca3af"></i>S&amp;P 500</span></div>
+  </section>
+
+  <section id="intraday-section" class="hidden">
+    <h2>Today — live market action</h2>
+    <div class="sub" id="intraday-sub"></div>
+    <canvas id="intraday" class="tall"></canvas>
+  </section>
+
+  <section id="sleeve-section" class="hidden">
+    <h2>Day-trade sleeve</h2>
+    <div class="sub" id="sleeve-sub"></div>
+    <table id="sleeve-table"></table>
+  </section>
+
+  <section>
+    <h2>Positions</h2>
+    <div class="sub" id="positions-sub"></div>
+    <table id="positions"></table>
+  </section>
+
+  <section>
+    <h2>Recent trades</h2>
+    <div class="sub">Latest activity from the trade journal</div>
+    <table id="trades"></table>
+  </section>
+
+  <section id="daylog-section" class="hidden">
+    <h2>Day-trade log</h2>
+    <div class="sub">Sleeve fills and exits from the armed days (funding
+      sells excluded)</div>
+    <table id="daylog"></table>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt$ = n => n == null ? "—" : "$" + Number(n).toLocaleString(undefined,
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct = n => n == null ? "—" : (n > 0 ? "+" : "") + Number(n).toFixed(2) + "%";
+
+async function load() {
+  const res = await fetch("data.json", { cache: "no-store" });
+  if (!res.ok) throw new Error("data.json " + res.status);
+  render(await res.json());
+}
+
+function chip(html, cls) { const s = document.createElement("span");
+  s.className = "chip " + cls; s.innerHTML = html; $("chips").appendChild(s); }
+
+function render(d) {
+  $("asof").textContent = "Market data as of " + (d.as_of || "—")
+    + " · updated " + (d.updated_at || "");
+  $("pvalue").textContent = fmt$(d.portfolio_value);
+  $("chips").innerHTML = "";
+  chip(fmtPct(d.total_return_pct) + " total",
+    d.total_return_pct > 0 ? "up" : d.total_return_pct < 0 ? "down" : "flat");
+  if (d.day_change_pct != null)
+    chip(fmtPct(d.day_change_pct) + " today",
+      d.day_change_pct > 0 ? "up" : d.day_change_pct < 0 ? "down" : "flat");
+  chip("cash " + fmt$(d.cash), "flat");
+  const b = d.spy_benchmark || {};
+  if (b.buy_and_hold_return_pct != null) {
+    const diff = (d.total_return_pct - b.buy_and_hold_return_pct).toFixed(2);
+    $("spyline").textContent = "S&P 500 over the same period: "
+      + fmtPct(b.buy_and_hold_return_pct) + " · bot is " + Math.abs(diff) + "% "
+      + (diff >= 0 ? "ahead" : "behind") + " · paper trading, not financial advice";
+  } else $("spyline").textContent = "";
+
+  const stats = d.stats || {};
+  const cards = [
+    ["Positions", d.positions ? d.positions.length : 0, "open holdings"],
+    ["Intraday lots", stats.open_lots ?? "—", stats.closed_trades + " closed trades"],
+    ["Intraday win rate", stats.win_rate == null ? "—"
+      : (stats.win_rate * 100).toFixed(0) + "%", "per closed trade"],
+    ["Round trips", (d.round_trips || []).length, "completed buy→sell pairs"],
+    ["Learner win rate vs S&P", d.ema_win_rate_vs_spy == null ? "—"
+      : (d.ema_win_rate_vs_spy * 100).toFixed(0) + "%",
+      d.n_evaluations + " evaluations"],
+  ];
+  $("statcards").innerHTML = cards.map(([k, v, s]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`
+  ).join("");
+
+  drawEquity(d.equity_curve || []);
+  drawIntraday(d);
+  renderStreaks(d.streaks || {});
+  renderSleeve(d.daytrade);
+  renderPositions(d);
+  renderTrades(d.recent_trades || []);
+  renderDayLog(d.daytrade_log || []);
+  $("footer").textContent = "Snapshot generated " + (d.updated_at || "")
+    + " · refreshes every 5 min · AI Stock Bot paper-trading project";
+}
+
+/* ---------------- charts ---------------- */
+function setupCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  return [ctx, r.width, r.height];
+}
+function niceDomain(lo, hi) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.08; return [lo - pad, hi + pad];
+}
+
+function drawEquity(curve) {
+  const cv = $("equity");
+  const [ctx, W, H] = setupCanvas(cv);
+  ctx.clearRect(0, 0, W, H);
+  if (curve.length < 2) {
+    ctx.fillStyle = "#6b7280"; ctx.font = "14px sans-serif";
+    ctx.fillText("Not enough data yet — check back after a few trading days.", 12, H / 2);
+    return;
+  }
+  const spy0 = Number(curve[0].spy_close);
+  const bot = curve.map(r => Number(r.portfolio_value));
+  const spy = curve.map(r => 100 * Number(r.spy_close) / spy0);
+  const all = bot.concat(spy);
+  const [lo, hi] = niceDomain(Math.min(...all), Math.max(...all));
+  const px = i => 34 + (W - 48) * i / (curve.length - 1);
+  const py = v => H - 26 - (H - 48) * (v - lo) / (hi - lo);
+
+  ctx.strokeStyle = "#e5e7eb"; ctx.fillStyle = "#9ca3af"; ctx.font = "11px sans-serif";
+  for (let g = 0; g <= 4; g++) {
+    const v = lo + (hi - lo) * g / 4, y = py(v);
+    ctx.beginPath(); ctx.moveTo(34, y); ctx.lineTo(W - 14, y); ctx.stroke();
+    ctx.fillText("$" + v.toFixed(0), 2, y + 3);
+  }
+  ctx.textAlign = "center";
+  [0, curve.length - 1].forEach(i =>
+    ctx.fillText(curve[i].date.slice(5), px(i), H - 8));
+  ctx.textAlign = "left";
+
+  // S&P dashed grey
+  ctx.strokeStyle = "#9ca3af"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+  ctx.beginPath(); spy.forEach((v, i) => i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v))); ctx.stroke();
+  // Bot solid blue + end label
+  ctx.setLineDash([]); ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2;
+  ctx.beginPath(); bot.forEach((v, i) => i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v))); ctx.stroke();
+  ctx.fillStyle = "#2563eb"; ctx.font = "bold 12px sans-serif";
+  ctx.fillText("$" + bot[bot.length - 1].toFixed(2) + " bot", Math.min(px(bot.length - 1) - 70, W - 90), py(bot[bot.length - 1]) - 6);
+  ctx.fillStyle = "#6b7280";
+  ctx.fillText("$" + spy[spy.length - 1].toFixed(2) + " S&P", Math.min(px(spy.length - 1) - 80, W - 100), py(spy[spy.length - 1]) - 6);
+}
+
+function drawIntraday(d) {
+  const pts = d.intraday_curve || [];
+  const sec = $("intraday-section");
+  if (!pts.length) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  $("intraday-sub").textContent = (d.intraday_curve_date || "")
+    + " · portfolio value across today's 15-minute bars";
+  const cv = $("intraday");
+  const [ctx, W, H] = setupCanvas(cv);
+  ctx.clearRect(0, 0, W, H);
+  const vals = pts.map(p => Number(p.value ?? p));
+  const [lo, hi] = niceDomain(Math.min(...vals), Math.max(...vals));
+  const px = i => 34 + (W - 48) * i / (pts.length - 1);
+  const py = v => H - 26 - (H - 48) * (v - lo) / (hi - lo);
+  ctx.strokeStyle = "#e5e7eb"; ctx.fillStyle = "#9ca3af"; ctx.font = "11px sans-serif";
+  for (let g = 0; g <= 4; g++) {
+    const v = lo + (hi - lo) * g / 4, y = py(v);
+    ctx.beginPath(); ctx.moveTo(34, y); ctx.lineTo(W - 14, y); ctx.stroke();
+    ctx.fillText("$" + v.toFixed(1), 2, y + 3);
+  }
+  const down = vals[vals.length - 1] < vals[0];
+  const col = down ? "#dc2626" : "#16a34a";
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, down ? "rgba(220,38,38,.18)" : "rgba(22,163,74,.18)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.beginPath();
+  vals.forEach((v, i) => i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)));
+  ctx.lineTo(px(vals.length - 1), H - 26); ctx.lineTo(px(0), H - 26); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath(); ctx.strokeStyle = col; ctx.lineWidth = 2;
+  vals.forEach((v, i) => i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v))); ctx.stroke();
+  ctx.fillStyle = col; ctx.font = "bold 12px sans-serif";
+  ctx.fillText(fmt$(vals[vals.length - 1]), Math.min(px(vals.length - 1) - 60, W - 80), py(vals[vals.length - 1]) - 6);
+  // compute day change into the hero chip via closure: store on window
+  d.day_change_pct = (vals[vals.length - 1] / vals[0] - 1) * 100;
+}
+
+/* ---------------- tables ---------------- */
+function renderStreaks(s) {
+  const sec = $("streaks-section");
+  if (!s || !Object.keys(s).length) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const atPeak = s.at_peak != null
+    ? (s.at_peak ? "At peak"
+       : (s.below_peak_pct || 0).toFixed(2) + "% below peak")
+    : "—";
+  const cards = [
+    ["Below peak right now", atPeak,
+      s.at_peak ? "highest the account has been" : "vs account high"],
+    ["Worst drop so far",
+      s.worst_drop_pct != null && s.worst_drop_pct < 0
+        ? s.worst_drop_pct.toFixed(2) + "%" : "—",
+     "max drawdown from a peak"],
+    ["Current streak",
+      s.streak_days ? s.streak_days + " " + s.streak_dir + " day(s)" : "—",
+     "vs previous close"],
+    ["Daily win rate",
+      s.daily_win_rate_pct != null ? s.daily_win_rate_pct.toFixed(0) + "%" : "—",
+     "share of up days"],
+    ["Intraday trades closed",
+      s.closed_trades != null ? s.closed_trades : "0 yet",
+     "completed round trips"],
+    ["Intraday win rate",
+      s.intraday_win_rate_pct != null ? s.intraday_win_rate_pct.toFixed(0) + "%" : "—",
+     "per closed trade"],
+    ["Intraday avg P/L per trade",
+      s.intraday_avg_pnl_dollars != null ? fmt$(s.intraday_avg_pnl_dollars) : "—",
+     s.intraday_avg_pnl_dollars == null ? "" :
+       (s.intraday_avg_pnl_dollars >= 0 ? "in the green" : "in the red")],
+  ];
+  $("streakcards").innerHTML = cards.map(([k, v, s2]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div>
+     <div class="s">${s2}</div></div>`).join("");
+}
+
+function renderSleeve(s) {
+  const sec = $("sleeve-section");
+  if (!s || !s.funded) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const pnl = s.day_pnl_dollars;
+  const pnlTxt = pnl == null ? "" :
+    ` · day P&amp;L <b class="${pnl >= 0 ? "pos" : "neg"}">${pnl >= 0 ? "+" : ""}${fmt$(pnl).replace("$-", "-$")}</b>`;
+  if (s.flat) {
+    $("sleeve-sub").innerHTML = (s.date || "") + " · started at "
+      + fmt$(s.start_value)
+      + " · <b>flat by the 3:30 PM ET rule</b> — no overnight risk" + pnlTxt;
+    $("sleeve-table").innerHTML =
+      "<tr><td>No open sleeve positions — the sleeve ended the day in cash.</td></tr>";
+    return;
+  }
+  $("sleeve-sub").innerHTML = (s.date || "") + " · started at "
+    + fmt$(s.start_value) + (s.halted ? " · <b>HALTED</b> (circuit breaker)" : "") + pnlTxt;
+  const rows = (s.positions || []).map(p => {
+    const pnlPct = (p.current_price != null && p.entry_price)
+      ? (p.current_price / p.entry_price - 1) * 100 : null;
+    return `<tr><td>${p.ticker}</td><td>${Number(p.shares).toFixed(4)}</td>
+      <td>${fmt$(p.entry_price)}</td><td>${fmt$(p.current_price)}</td>
+      <td class="${pnlPct == null ? "" : pnlPct >= 0 ? "pos" : "neg"}">
+        ${pnlPct == null ? "—" : fmtPct(pnlPct)}</td></tr>`;
+  }).join("");
+  $("sleeve-table").innerHTML =
+    "<tr><th>Ticker</th><th>Shares</th><th>Entry</th><th>Now</th><th>P&amp;L</th></tr>" + rows;
+}
+
+function renderPositions(d) {
+  const ps = d.positions || [];
+  $("positions-sub").textContent = ps.length
+    ? ps.length + " open holding(s) · cash " + fmt$(d.cash) : "No open positions.";
+  $("positions").innerHTML = ps.length
+    ? "<tr><th>Ticker</th><th>Shares</th><th>Price</th><th>Value</th><th>Weight</th></tr>"
+      + ps.map(p => `<tr><td>${p.ticker}</td><td>${Number(p.shares).toFixed(4)}</td>
+        <td>${fmt$(p.price)}</td><td>${fmt$(p.value)}</td>
+        <td>${p.weight == null ? "—" : (p.weight * 100).toFixed(1) + "%"}</td></tr>`).join("")
+    : "";
+}
+
+function renderTrades(trades) {
+  const t = trades.slice(0, 12);
+  $("trades").innerHTML = t.length
+    ? "<tr><th>Date</th><th>Side</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Amount</th></tr>"
+      + t.map(r => `<tr><td>${String(r.date).slice(0, 16)}</td>
+        <td class="${r.side === "BUY" ? "pos" : "neg"}">${r.side}</td>
+        <td>${r.ticker}</td><td>${Number(r.shares).toFixed(4)}</td>
+        <td>${fmt$(r.price)}</td><td>${fmt$(r.dollar_amount)}</td></tr>`).join("")
+    : "<tr><td>No trades yet.</td></tr>";
+}
+
+function renderDayLog(log) {
+  const sec = $("daylog-section");
+  if (!log.length) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  const tagCls = r => r.startsWith("[daytrade stop") ? "neg"
+    : r.startsWith("[daytrade target") ? "pos" : "";
+  $("daylog").innerHTML =
+    "<tr><th>Time (ET)</th><th>Side</th><th>Ticker</th><th>Shares</th>"
+    + "<th>Price</th><th>Amount</th><th>Why</th></tr>"
+    + log.map(t => {
+        const reason = String(t.reason || "");
+        const why = reason.replace(/^\[daytrade (entry|stop|target|flatten|circuit breaker)\]\s*/i, "");
+        return `<tr><td>${String(t.date).slice(5, 16).replace("T", " ")}</td>
+          <td class="${t.side === "BUY" ? "pos" : "neg"}">${t.side}</td>
+          <td>${t.ticker}</td><td>${Number(t.shares).toFixed(4)}</td>
+          <td>${fmt$(t.price)}</td><td>${fmt$(t.dollar_amount)}</td>
+          <td class="${tagCls(reason)}">${why || reason}</td></tr>`;
+      }).join("");
+}
+
+/* data.json carries day_change_pct; re-render chips once computed from intraday curve */
+const origRender = render;
+render = function(d) { origRender(d); if (d.day_change_pct != null) {
+  $("chips").innerHTML = "";
+  chip(fmtPct(d.total_return_pct) + " total",
+    d.total_return_pct > 0 ? "up" : d.total_return_pct < 0 ? "down" : "flat");
+  chip(fmtPct(d.day_change_pct) + " today",
+    d.day_change_pct > 0 ? "up" : d.day_change_pct < 0 ? "down" : "flat");
+  chip("cash " + fmt$(d.cash), "flat");
+} };
+
+load().catch(e => { $("asof").textContent = "failed to load data — " + e.message; });
+setInterval(load, 5 * 60 * 1000);
+window.addEventListener("resize", load);
+</script>
+</body>
+</html>
